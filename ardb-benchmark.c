@@ -1,5 +1,3 @@
-// gcc -o  ardb-benchmark ardb-benchmark.c -W -Wall -O2 -pthread -I/usr/include/hiredis -lhiredis -lpthread -lssl -lcrypto
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <hiredis.h>
