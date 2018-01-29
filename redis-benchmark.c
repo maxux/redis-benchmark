@@ -288,8 +288,9 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
     if(!(bench->responses = (char **) malloc(sizeof(char *) * bench->chunks)))
         diep("malloc: responses");
 
+    size_t datasize = (size_t) bench->chunks * bench->chunksize;
     printf("[+] generator: will allocate %u keys (payload: %u bytes)\n", bench->chunks, bench->chunksize);
-    printf("[+] generator: payload memory usage: %.2f MB\n", (bench->chunks * bench->chunksize) / (1024 * 1024.0));
+    printf("[+] generator: payload memory usage: %.2f MB\n", datasize / (1024 * 1024.0));
     printf("[+] generator: hashkey memory usage: %.2f MB\n", (bench->chunks * SHA256LEN) / (1024 * 1024.0));
 
     // generating buffers
@@ -305,23 +306,23 @@ void benchmark_statistics(benchmark_t *bench) {
     double wtime = (double)(bench->write.time_end - bench->write.time_begin) / CLOCKS_PER_SEC;
     double rtime = (double)(bench->read.time_end - bench->read.time_begin) / CLOCKS_PER_SEC;
 
-    double wbreal = (((unsigned long long) bench->write.rtime_begin.tv_sec * 1000000) + bench->write.rtime_begin.tv_usec) / 1000000.0;
-    double wereal = (((unsigned long long) bench->write.rtime_end.tv_sec * 1000000) + bench->write.rtime_end.tv_usec) / 1000000.0;
-    double rbreal = (((unsigned long long) bench->read.rtime_begin.tv_sec * 1000000) + bench->read.rtime_begin.tv_usec) / 1000000.0;
-    double rereal = (((unsigned long long) bench->read.rtime_end.tv_sec * 1000000) + bench->read.rtime_end.tv_usec) / 1000000.0;
-    double secrbreal = (((unsigned long long) bench->secread.rtime_begin.tv_sec * 1000000) + bench->secread.rtime_begin.tv_usec) / 1000000.0;
-    double secrereal = (((unsigned long long) bench->secread.rtime_end.tv_sec * 1000000) + bench->secread.rtime_end.tv_usec) / 1000000.0;
+    double wbreal = (((size_t) bench->write.rtime_begin.tv_sec * 1000000) + bench->write.rtime_begin.tv_usec) / 1000000.0;
+    double wereal = (((size_t) bench->write.rtime_end.tv_sec * 1000000) + bench->write.rtime_end.tv_usec) / 1000000.0;
+    double rbreal = (((size_t) bench->read.rtime_begin.tv_sec * 1000000) + bench->read.rtime_begin.tv_usec) / 1000000.0;
+    double rereal = (((size_t) bench->read.rtime_end.tv_sec * 1000000) + bench->read.rtime_end.tv_usec) / 1000000.0;
+    double secrbreal = (((size_t) bench->secread.rtime_begin.tv_sec * 1000000) + bench->secread.rtime_begin.tv_usec) / 1000000.0;
+    double secrereal = (((size_t) bench->secread.rtime_end.tv_sec * 1000000) + bench->secread.rtime_end.tv_usec) / 1000000.0;
 
     double wrtime = wereal - wbreal;
     double rrtime = rereal - rbreal;
     double secrrtime = secrereal - secrbreal;
 
     float chunkskb = bench->chunksize / 1024.0;
-    float wspeed = ((bench->chunksize * bench->chunks) / wtime) / (1024 * 1024);
-    float rspeed = ((bench->chunksize * bench->chunks) / rtime) / (1024 * 1024);
+    float wspeed = (((size_t) bench->chunksize * bench->chunks) / wtime) / (1024 * 1024);
+    float rspeed = (((size_t) bench->chunksize * bench->chunks) / rtime) / (1024 * 1024);
 
-    float wrspeed = ((bench->chunksize * bench->chunks) / wrtime) / (1024 * 1024);
-    float rrspeed = ((bench->chunksize * bench->chunks) / rrtime) / (1024 * 1024);
+    float wrspeed = (((size_t) bench->chunksize * bench->chunks) / wrtime) / (1024 * 1024);
+    float rrspeed = (((size_t) bench->chunksize * bench->chunks) / rrtime) / (1024 * 1024);
     float secrrspeed = ((bench->chunksize * bench->chunks) / secrrtime) / (1024 * 1024);
 
     printf("[+] --- client %u ---\n", bench->id);
