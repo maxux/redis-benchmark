@@ -5,16 +5,28 @@
 #include <string.h>
 #include <pthread.h>
 #include <sys/types.h>
+#include <openssl/sha.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include "openssl/sha.h"
+#include <getopt.h>
 
-#define CHUNKSIZE     512   // 16 KB
-#define CHUNKS        32768         // 4096 chunks of 8 KB per client
+#define DEFAULT_CHUNKSIZE     4 * 1024  // 4 KB payload
+#define DEFAULT_CHUNKS        8 * 1024  // 8192 keys
 
 #define SHA256LEN     (size_t) SHA256_DIGEST_LENGTH * 2
+
+static struct option long_options[] = {
+    {"size",    required_argument, 0, 's'},
+    {"keys",    required_argument, 0, 'k'},
+    {"threads", required_argument, 0, 't'},
+    {0, 0, 0, 0}
+};
+
+size_t rootchunksize = DEFAULT_CHUNKSIZE;
+size_t rootchunks = DEFAULT_CHUNKS;
+size_t rootclients = 1;
 
 typedef struct benchmark_pass_t {
     unsigned int success;    // upload success
@@ -76,6 +88,33 @@ static char *sha256(const unsigned char *buffer, size_t length) {
 }
 
 //
+// progress bar
+//
+void progressbar(size_t now, size_t total) {
+    int progress = ((double) now / (double) total) * 50;
+
+    printf("[");
+    for(int i = 0; i < progress; i++)
+        printf("=");
+
+    for(int i = progress; i < 50; i++)
+        printf(".");
+
+    printf("]\r");
+}
+
+void progress(unsigned int clientid, char *status, size_t now, size_t total) {
+    printf("\r[+] client %u, %s: ", clientid, status);
+    progressbar(now, total);
+}
+
+void progressdone(unsigned int clientid, char *status) {
+    printf("\r[+] client %u, %s: ", clientid, status);
+    progressbar(100, 100);
+    printf("\n");
+}
+
+//
 // redis
 //
 benchmark_t *benchmark_init(const char *host, int port) {
@@ -116,13 +155,20 @@ static void *benchmark_pass_write(void *data) {
         reply = redisCommand(b->redis, "SET %b %b", b->hashes[i], SHA256LEN, b->buffers[i], b->chunksize);
         // reply = redisCommand(b->redis, "SET X %b", b->buffers[i], b->chunksize);
         // printf("[+] uploading: %s: %s\n", bench->hashes[i], reply->str);
-        printf("[+] uploading chunk %d: %s\n", i, reply->str);
+
+        // printf("[+] uploading chunk %d: %s\n", i, reply->str);
+        //
+        if(i % 100 == 0)
+            progress(b->id, "writing chunks  ", i, b->chunks);
+
         b->responses[i] = strdup(reply->str);
 
         freeReplyObject(reply);
 
         b->write.success += 1;
     }
+
+    progressdone(b->id, "writing chunks  ");
 
     b->write.time_end = clock();
     gettimeofday(&b->write.rtime_end, NULL);
@@ -142,8 +188,13 @@ static void *benchmark_pass_read(void *data) {
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
         freeReplyObject(reply);
 
+        if(i % 100 == 0)
+            progress(b->id, "reading (simple)", i, b->chunks);
+
         b->read.success += 1;
     }
+
+    progressdone(b->id, "reading (simple)");
 
     b->read.time_end = clock();
     gettimeofday(&b->read.rtime_end, NULL);
@@ -166,12 +217,18 @@ static void *benchmark_pass_read_secure(void *data) {
 
         // compare hashes
         if(strcmp((const char *) hash, (const char *) b->hashes[i])) {
-            fprintf(stderr, "[-] hash mismatch: %s <> %s\n", hash, b->hashes[i]);
+            fprintf(stderr, "\n[-] hash mismatch: %s <> %s\n", hash, b->hashes[i]);
             // exit(EXIT_FAILURE);
         }
 
+
+        if(i % 100 == 0)
+            progress(b->id, "reading (secure)", i, b->chunks);
+
         freeReplyObject(reply);
     }
+
+    progressdone(b->id, "reading (secure)");
 
     b->secread.time_end = clock();
     gettimeofday(&b->secread.rtime_end, NULL);
@@ -209,7 +266,9 @@ static char *benchmark_buffer_generate(benchmark_t *bench, size_t buffer) {
     }
 
     bench->hashes[buffer] = sha256(bench->buffers[buffer], bench->chunksize);
-    printf("[+] client %u, buffer %lu: %s\n", bench->id, buffer, bench->hashes[buffer]);
+
+    if(buffer % 100 == 0)
+        progress(bench->id, "generating data ", buffer, bench->chunks);
 
     return bench->hashes[buffer];
 }
@@ -232,6 +291,8 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
     // generating buffers
     for(unsigned int buffer = 0; buffer < bench->chunks; buffer++)
         benchmark_buffer_generate(bench, buffer);
+
+    progressdone(bench->id, "generating data ");
 
     return bench;
 }
@@ -279,7 +340,8 @@ void benchmark_passes(benchmark_t **benchs, unsigned int length) {
     // starting write pass
     // during this pass, buffers are written to the backend
     //
-    printf("[+] starting pass: write\n");
+
+    // printf("[+] starting pass: write\n");
     for(unsigned int i = 0; i < length; i++)
         if(pthread_create(&benchs[i]->pthread, NULL, benchmark_pass_write, benchs[i]))
             diep("pthread_create");
@@ -291,7 +353,8 @@ void benchmark_passes(benchmark_t **benchs, unsigned int length) {
     // starting read pass
     // during this pass, we get hashes keys but we don't do anything with them
     //
-    printf("[+] starting pass: read, simple\n");
+
+    //printf("[+] starting pass: read, simple\n");
     for(unsigned int i = 0; i < length; i++)
         if(pthread_create(&benchs[i]->pthread, NULL, benchmark_pass_read, benchs[i]))
             diep("pthread_create");
@@ -305,7 +368,8 @@ void benchmark_passes(benchmark_t **benchs, unsigned int length) {
     // data are compared to keys to check data consistancy, we don't mesure time
     // of this pass because hashing time is not related to backend read/write
     //
-    printf("[+] starting pass: read, secure\n");
+
+    // printf("[+] starting pass: read, secure\n");
     for(unsigned int i = 0; i < length; i++)
         if(pthread_create(&benchs[i]->pthread, NULL, benchmark_pass_read_secure, benchs[i]))
             diep("pthread_create");
@@ -315,6 +379,8 @@ void benchmark_passes(benchmark_t **benchs, unsigned int length) {
 }
 
 int benchmark(benchmark_t **benchs, unsigned int length) {
+    printf("\033[?25l");
+
     //
     // allocating and fill buffers with random data
     // computing hash of buffers, which will be used as keys
@@ -336,23 +402,14 @@ int benchmark(benchmark_t **benchs, unsigned int length) {
     for(unsigned int i = 0; i < length; i++)
         benchmark_statistics(benchs[i]);
 
+    printf("\033[?25h");
+
     return 0;
 }
 
-int main(int argc, char *argv[]) {
+int initialize() {
     benchmark_t **remotes;
-    unsigned int threads = 1;
-
-    //
-    // settings
-    //
-    if(argc > 1)
-        threads = atoi(argv[1]);
-
-    if(threads < 1 || threads > 16) {
-        fprintf(stderr, "[-] invalid threads count\n");
-        exit(EXIT_FAILURE);
-    }
+    unsigned int threads = rootclients;
 
     //
     // initializing
@@ -372,12 +429,45 @@ int main(int argc, char *argv[]) {
         }
 
         remotes[i]->id = i;
-        remotes[i]->chunksize = CHUNKSIZE;
-        remotes[i]->chunks = CHUNKS;
+        remotes[i]->chunksize = rootchunksize;
+        remotes[i]->chunks = rootchunks;
     }
 
     //
     // starting benchmarks process
     //
     return benchmark(remotes, threads);
+}
+
+int main(int argc, char *argv[]) {
+    int option_index = 0;
+
+    while(1) {
+        // int i = getopt_long_only(argc, argv, "d:i:l:p:vxh", long_options, &option_index);
+        int i = getopt_long_only(argc, argv, "", long_options, &option_index);
+
+        if(i == -1)
+            break;
+
+        switch(i) {
+            case 's':
+                rootchunksize = atoi(optarg);
+                break;
+
+            case 'k':
+                rootchunks = atoi(optarg);
+                break;
+
+            case 't':
+                rootclients = atoi(optarg);
+                break;
+
+            case '?':
+            default:
+               printf("Usage: %s [--size payload-size] [--keys count] [--threads clients]\n", argv[0]);
+               exit(EXIT_FAILURE);
+        }
+    }
+
+    return initialize();
 }
