@@ -288,6 +288,10 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
     if(!(bench->responses = (char **) malloc(sizeof(char *) * bench->chunks)))
         diep("malloc: responses");
 
+    printf("[+] generator: will allocate %u keys (payload: %u bytes)\n", bench->chunks, bench->chunksize);
+    printf("[+] generator: payload memory usage: %.2f MB\n", (bench->chunks * bench->chunksize) / (1024 * 1024.0));
+    printf("[+] generator: hashkey memory usage: %.2f MB\n", (bench->chunks * SHA256LEN) / (1024 * 1024.0));
+
     // generating buffers
     for(unsigned int buffer = 0; buffer < bench->chunks; buffer++)
         benchmark_buffer_generate(bench, buffer);
