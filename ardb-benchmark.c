@@ -6,12 +6,13 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include "openssl/sha.h"
 
-#define CHUNKSIZE     16 * 1024   // 16 KB
-#define CHUNKS        4096        // 4096 chunks of 16 KB per client
+#define CHUNKSIZE     512   // 16 KB
+#define CHUNKS        32768         // 4096 chunks of 8 KB per client
 
 #define SHA256LEN     (size_t) SHA256_DIGEST_LENGTH * 2
 
@@ -19,6 +20,8 @@ typedef struct benchmark_pass_t {
     unsigned int success;    // upload success
     clock_t time_begin;      // init time
     clock_t time_end;        // end time
+    struct timeval rtime_begin;
+    struct timeval rtime_end;
 
 } benchmark_pass_t;
 
@@ -30,9 +33,11 @@ typedef struct benchmark_t {
     unsigned int chunksize;   // chunk size
     unsigned int chunks;      // chunks length
     unsigned char **buffers;  // chunks buffers
-    unsigned char **hashes;   // chunks hashes
+    char **hashes;   // chunks hashes
+    char **responses;
 
     struct benchmark_pass_t read;
+    struct benchmark_pass_t secread;
     struct benchmark_pass_t write;
 
 } benchmark_t;
@@ -45,16 +50,21 @@ void diep(char *str) {
 //
 // hashing
 //
-static unsigned char *sha256hex(unsigned char *hash) {
-    unsigned char *buffer = calloc((SHA256_DIGEST_LENGTH * 2) + 1, sizeof(char));
+char __hex[] = "0123456789abcdef";
 
-    for(int i = 0; i < SHA256_DIGEST_LENGTH; i++)
-        sprintf((char *) buffer + (i * 2), "%02x", hash[i]);
+static char *sha256hex(unsigned char *hash) {
+    char *buffer = calloc((SHA256_DIGEST_LENGTH * 2) + 1, sizeof(char));
+    char *writer = buffer;
+
+    for(int i = 0, j = 0; i < SHA256_DIGEST_LENGTH; i++, j += 2) {
+        *writer++ = __hex[(hash[i] & 0xF0) >> 4];
+        *writer++ = __hex[hash[i] & 0x0F];
+    }
 
     return buffer;
 }
 
-static unsigned char *sha256(const unsigned char *buffer, size_t length) {
+static char *sha256(const unsigned char *buffer, size_t length) {
     unsigned char hash[SHA256_DIGEST_LENGTH];
     SHA256_CTX sha256;
 
@@ -99,17 +109,23 @@ static void *benchmark_pass_write(void *data) {
     benchmark_t *b = (benchmark_t *) data;
     redisReply *reply;
 
+    gettimeofday(&b->write.rtime_begin, NULL);
     b->write.time_begin = clock();
 
     for(unsigned int i = 0; i < b->chunks; i++) {
         reply = redisCommand(b->redis, "SET %b %b", b->hashes[i], SHA256LEN, b->buffers[i], b->chunksize);
+        // reply = redisCommand(b->redis, "SET X %b", b->buffers[i], b->chunksize);
         // printf("[+] uploading: %s: %s\n", bench->hashes[i], reply->str);
+        printf("[+] uploading chunk %d: %s\n", i, reply->str);
+        b->responses[i] = strdup(reply->str);
+
         freeReplyObject(reply);
 
         b->write.success += 1;
     }
 
     b->write.time_end = clock();
+    gettimeofday(&b->write.rtime_end, NULL);
 
     return NULL;
 }
@@ -118,10 +134,11 @@ static void *benchmark_pass_read(void *data) {
     benchmark_t *b = (benchmark_t *) data;
     redisReply *reply;
 
+    gettimeofday(&b->read.rtime_begin, NULL);
     b->read.time_begin = clock();
 
     for(unsigned int i = 0; i < b->chunks; i++) {
-        reply = redisCommand(b->redis, "GET %b", b->hashes[i], SHA256LEN);
+        reply = redisCommand(b->redis, "GET %s", b->responses[i], strlen(b->responses[i]));
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
         freeReplyObject(reply);
 
@@ -129,6 +146,7 @@ static void *benchmark_pass_read(void *data) {
     }
 
     b->read.time_end = clock();
+    gettimeofday(&b->read.rtime_end, NULL);
 
     return NULL;
 }
@@ -137,11 +155,14 @@ static void *benchmark_pass_read_secure(void *data) {
     benchmark_t *b = (benchmark_t *) data;
     redisReply *reply;
 
+    gettimeofday(&b->secread.rtime_begin, NULL);
+    b->secread.time_begin = clock();
+
     for(unsigned int i = 0; i < b->chunks; i++) {
-        reply = redisCommand(b->redis, "GET %b", b->hashes[i], SHA256LEN);
+        reply = redisCommand(b->redis, "GET %s", b->responses[i], strlen(b->responses[i]));
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
 
-        unsigned char *hash = sha256((unsigned char *) reply->str, reply->len);
+        char *hash = sha256((unsigned char *) reply->str, reply->len);
 
         // compare hashes
         if(strcmp((const char *) hash, (const char *) b->hashes[i])) {
@@ -151,6 +172,9 @@ static void *benchmark_pass_read_secure(void *data) {
 
         freeReplyObject(reply);
     }
+
+    b->secread.time_end = clock();
+    gettimeofday(&b->secread.rtime_end, NULL);
 
     return NULL;
 }
@@ -175,7 +199,7 @@ static size_t randomize(unsigned char *buffer, size_t length) {
     return rndread;
 }
 
-static unsigned char *benchmark_buffer_generate(benchmark_t *bench, size_t buffer) {
+static char *benchmark_buffer_generate(benchmark_t *bench, size_t buffer) {
     if(!(bench->buffers[buffer] = (unsigned char *) malloc(sizeof(char) * bench->chunksize)))
         diep("malloc: buffer");
 
@@ -194,12 +218,16 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
     printf("[+] allocating buffers [client %u]\n", bench->id);
 
     // allocating memory for hashes
-    if(!(bench->hashes = (unsigned char **) malloc(sizeof(char *) * bench->chunks)))
+    if(!(bench->hashes = (char **) malloc(sizeof(char *) * bench->chunks)))
         diep("malloc: hashes");
 
     // allocating memory for buffers
     if(!(bench->buffers = (unsigned char **) malloc(sizeof(char *) * bench->chunks)))
         diep("malloc: buffers");
+
+    // allocating memory for responses
+    if(!(bench->responses = (char **) malloc(sizeof(char *) * bench->chunks)))
+        diep("malloc: responses");
 
     // generating buffers
     for(unsigned int buffer = 0; buffer < bench->chunks; buffer++)
@@ -212,16 +240,38 @@ void benchmark_statistics(benchmark_t *bench) {
     double wtime = (double)(bench->write.time_end - bench->write.time_begin) / CLOCKS_PER_SEC;
     double rtime = (double)(bench->read.time_end - bench->read.time_begin) / CLOCKS_PER_SEC;
 
+    double wbreal = (((unsigned long long) bench->write.rtime_begin.tv_sec * 1000000) + bench->write.rtime_begin.tv_usec) / 1000000.0;
+    double wereal = (((unsigned long long) bench->write.rtime_end.tv_sec * 1000000) + bench->write.rtime_end.tv_usec) / 1000000.0;
+    double rbreal = (((unsigned long long) bench->read.rtime_begin.tv_sec * 1000000) + bench->read.rtime_begin.tv_usec) / 1000000.0;
+    double rereal = (((unsigned long long) bench->read.rtime_end.tv_sec * 1000000) + bench->read.rtime_end.tv_usec) / 1000000.0;
+    double secrbreal = (((unsigned long long) bench->secread.rtime_begin.tv_sec * 1000000) + bench->secread.rtime_begin.tv_usec) / 1000000.0;
+    double secrereal = (((unsigned long long) bench->secread.rtime_end.tv_sec * 1000000) + bench->secread.rtime_end.tv_usec) / 1000000.0;
+
+    double wrtime = wereal - wbreal;
+    double rrtime = rereal - rbreal;
+    double secrrtime = secrereal - secrbreal;
+
     float chunkskb = bench->chunksize / 1024.0;
     float wspeed = ((bench->chunksize * bench->chunks) / wtime) / (1024 * 1024);
     float rspeed = ((bench->chunksize * bench->chunks) / rtime) / (1024 * 1024);
 
-    printf("[+] --- client %u ---\n", bench->id);
-    printf("[+] write: %u keys of %.2f KB uploaded in %.2f seconds\n", bench->write.success, chunkskb, wtime);
-    printf("[+] read : %u keys of %.2f KB uploaded in %.2f seconds\n", bench->read.success, chunkskb, rtime);
+    float wrspeed = ((bench->chunksize * bench->chunks) / wrtime) / (1024 * 1024);
+    float rrspeed = ((bench->chunksize * bench->chunks) / rrtime) / (1024 * 1024);
+    float secrrspeed = ((bench->chunksize * bench->chunks) / secrrtime) / (1024 * 1024);
 
-    printf("[+] write: client speed: %.2f MB/s\n", wspeed);
-    printf("[+] read : client speed: %.2f MB/s\n", rspeed);
+    printf("[+] --- client %u ---\n", bench->id);
+    printf("[+] sys write: %u keys of %.2f KB uploaded in %.2f seconds\n", bench->write.success, chunkskb, wtime);
+    printf("[+] sys read : %u keys of %.2f KB uploaded in %.2f seconds\n", bench->read.success, chunkskb, rtime);
+
+    printf("[+] sys write: client speed: %.2f MB/s\n", wspeed);
+    printf("[+] sys read : client speed: %.2f MB/s\n", rspeed);
+
+    printf("[+] user write: %u keys of %.2f KB uploaded in %.2f seconds\n", bench->write.success, chunkskb, wrtime);
+    printf("[+] user read : %u keys of %.2f KB uploaded in %.2f seconds\n", bench->read.success, chunkskb, rrtime);
+
+    printf("[+] user write: client speed: %.2f MB/s\n", wrspeed);
+    printf("[+] reg user read : client speed: %.2f MB/s\n", rrspeed);
+    printf("[+] sec user read : client speed: %.2f MB/s\n", secrrspeed);
 }
 
 void benchmark_passes(benchmark_t **benchs, unsigned int length) {
@@ -291,13 +341,13 @@ int benchmark(benchmark_t **benchs, unsigned int length) {
 
 int main(int argc, char *argv[]) {
     benchmark_t **remotes;
-    unsigned int threads = 4;
+    unsigned int threads = 1;
 
     //
     // settings
     //
     if(argc > 1)
-        threads = atoi(threads);
+        threads = atoi(argv[1]);
 
     if(threads < 1 || threads > 16) {
         fprintf(stderr, "[-] invalid threads count\n");
@@ -316,7 +366,7 @@ int main(int argc, char *argv[]) {
     //
     printf("[+] connecting redis [%d threads]\n", threads);
     for(unsigned int i = 0; i < threads; i++) {
-        if(!(remotes[i] = benchmark_init("172.17.0.4", 16379))) {
+        if(!(remotes[i] = benchmark_init("127.0.0.1", 9900))) {
             fprintf(stderr, "[-] cannot allocate benchmark\n");
             exit(EXIT_FAILURE);
         }
