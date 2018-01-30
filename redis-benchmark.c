@@ -22,12 +22,16 @@ static struct option long_options[] = {
     {"size",    required_argument, 0, 's'},
     {"keys",    required_argument, 0, 'k'},
     {"threads", required_argument, 0, 't'},
+    {"host",    required_argument, 0, 'h'},
+    {"port",    required_argument, 0, 'p'},
     {0, 0, 0, 0}
 };
 
 size_t rootchunksize = DEFAULT_CHUNKSIZE;
 size_t rootchunks = DEFAULT_CHUNKS;
 size_t rootclients = 1;
+char *rootremote = "localhost";
+int rootport = 9900;
 
 typedef struct benchmark_pass_t {
     unsigned int success;    // upload success
@@ -463,7 +467,7 @@ int initialize() {
     //
     printf("[+] connecting redis [%d threads]\n", threads);
     for(unsigned int i = 0; i < threads; i++) {
-        if(!(remotes[i] = benchmark_init("127.0.0.1", 9900))) {
+        if(!(remotes[i] = benchmark_init(rootremote, rootport))) {
             fprintf(stderr, "[-] cannot allocate benchmark\n");
             exit(EXIT_FAILURE);
         }
@@ -502,9 +506,18 @@ int main(int argc, char *argv[]) {
                 rootclients = atoi(optarg);
                 break;
 
+            case 'h':
+                rootremote = optarg;
+                break;
+
+            case 'p':
+                rootport = atoi(optarg);
+                break;
+
             case '?':
             default:
                printf("Usage: %s [--size payload-size] [--keys count] [--threads clients]\n", argv[0]);
+               printf("       %s [--host hostname] [--port port]\n", argv[0]);
                exit(EXIT_FAILURE);
         }
     }
