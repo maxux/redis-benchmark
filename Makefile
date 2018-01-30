@@ -1,4 +1,4 @@
-EXEC=ardb-benchmark
+EXEC=redis-benchmark
 SRC=$(wildcard *.c)
 OBJ=$(SRC:.c=.o)
 
