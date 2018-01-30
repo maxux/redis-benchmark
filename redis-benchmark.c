@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <signal.h>
 
 #define DEFAULT_CHUNKSIZE     4 * 1024  // 4 KB payload
 #define DEFAULT_CHUNKS        8 * 1024  // 8192 keys
@@ -416,9 +417,39 @@ int benchmark(benchmark_t **benchs, unsigned int length) {
     return 0;
 }
 
+static int signal_intercept(int signal, void (*function)(int)) {
+    struct sigaction sig;
+    int ret;
+
+    sigemptyset(&sig.sa_mask);
+    sig.sa_handler = function;
+    sig.sa_flags   = 0;
+
+    if((ret = sigaction(signal, &sig, NULL)) == -1)
+        diep("sigaction");
+
+    return ret;
+}
+
+static void sighandler(int signal) {
+    void *buffer[1024];
+
+    switch(signal) {
+        case SIGINT:
+            printf("\n[+] stopping\n");
+            printf("\033[?25h");
+        break;
+    }
+
+    // forwarding original error code
+    exit(128 + signal);
+}
+
 int initialize() {
     benchmark_t **remotes;
     unsigned int threads = rootclients;
+
+    signal_intercept(SIGINT, sighandler);
 
     //
     // initializing
