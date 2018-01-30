@@ -101,6 +101,8 @@ void progressbar(size_t now, size_t total) {
         printf(".");
 
     printf("]\r");
+
+    fflush(stdout);
 }
 
 void progress(unsigned int clientid, char *status, size_t now, size_t total) {
@@ -158,7 +160,7 @@ static void *benchmark_pass_write(void *data) {
 
         // printf("[+] uploading chunk %d: %s\n", i, reply->str);
         //
-        if(i % 100 == 0)
+        if((i % (b->chunks / 128)) == 0)
             progress(b->id, "writing chunks  ", i, b->chunks);
 
         b->responses[i] = strdup(reply->str);
@@ -188,7 +190,7 @@ static void *benchmark_pass_read(void *data) {
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
         freeReplyObject(reply);
 
-        if(i % 100 == 0)
+        if((i % (b->chunks / 128)) == 0)
             progress(b->id, "reading (simple)", i, b->chunks);
 
         b->read.success += 1;
@@ -222,7 +224,7 @@ static void *benchmark_pass_read_secure(void *data) {
         }
 
 
-        if(i % 100 == 0)
+        if((i % (b->chunks / 128)) == 0)
             progress(b->id, "reading (secure)", i, b->chunks);
 
         freeReplyObject(reply);
@@ -267,7 +269,7 @@ static char *benchmark_buffer_generate(benchmark_t *bench, size_t buffer) {
 
     bench->hashes[buffer] = sha256(bench->buffers[buffer], bench->chunksize);
 
-    if(buffer % 100 == 0)
+    if(buffer % 16 == 0)
         progress(bench->id, "generating data ", buffer, bench->chunks);
 
     return bench->hashes[buffer];
@@ -326,11 +328,13 @@ void benchmark_statistics(benchmark_t *bench) {
     float secrrspeed = ((bench->chunksize * bench->chunks) / secrrtime) / (1024 * 1024);
 
     printf("[+] --- client %u ---\n", bench->id);
+    /*
     printf("[+] sys write: %u keys of %.2f KB uploaded in %.2f seconds\n", bench->write.success, chunkskb, wtime);
     printf("[+] sys read : %u keys of %.2f KB uploaded in %.2f seconds\n", bench->read.success, chunkskb, rtime);
 
     printf("[+] sys write: client speed: %.2f MB/s\n", wspeed);
     printf("[+] sys read : client speed: %.2f MB/s\n", rspeed);
+    */
 
     printf("[+] user write: %u keys of %.2f KB uploaded in %.2f seconds\n", bench->write.success, chunkskb, wrtime);
     printf("[+] user read : %u keys of %.2f KB uploaded in %.2f seconds\n", bench->read.success, chunkskb, rrtime);
