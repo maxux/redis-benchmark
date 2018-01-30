@@ -165,7 +165,7 @@ static void *benchmark_pass_write(void *data) {
 
         // printf("[+] uploading chunk %d: %s\n", i, reply->str);
         //
-        if((i % (b->chunks / 128)) == 0)
+        if((i % ((b->chunks > 1024 ? b->chunks / 128 : 2))) == 0)
             progress(b->id, "writing chunks  ", i, b->chunks);
 
         b->responses[i] = strdup(reply->str);
@@ -195,7 +195,7 @@ static void *benchmark_pass_read(void *data) {
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
         freeReplyObject(reply);
 
-        if((i % (b->chunks / 128)) == 0)
+        if((i % ((b->chunks > 1024 ? b->chunks / 128 : 2))) == 0)
             progress(b->id, "reading (simple)", i, b->chunks);
 
         b->read.success += 1;
@@ -224,12 +224,14 @@ static void *benchmark_pass_read_secure(void *data) {
 
         // compare hashes
         if(strcmp((const char *) hash, (const char *) b->hashes[i])) {
-            fprintf(stderr, "\n[-] hash mismatch: %s <> %s\n", hash, b->hashes[i]);
+            fprintf(stderr, "\n[-] hash mismatch: %s\n", hash);
+            fprintf(stderr, "[-] hash expected: %s\n", b->hashes[i]);
+            fprintf(stderr, "[-] size expected: %d, received: %u\n", reply->len, b->chunksize);
             // exit(EXIT_FAILURE);
         }
 
 
-        if((i % (b->chunks / 128)) == 0)
+        if((i % ((b->chunks > 1024 ? b->chunks / 128 : 2))) == 0)
             progress(b->id, "reading (secure)", i, b->chunks);
 
         freeReplyObject(reply);
@@ -309,28 +311,29 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
     return bench;
 }
 
+static double benchmark_time_spent(struct timeval *timer) {
+    return (((size_t) timer->tv_sec * 1000000) + timer->tv_usec) / 1000000.0;
+}
+
+static double benchmark_speed(size_t size, double timed) {
+    return (size / timed) / (1024 * 1024);
+}
+
 void benchmark_statistics(benchmark_t *bench) {
-    double wtime = (double)(bench->write.time_end - bench->write.time_begin) / CLOCKS_PER_SEC;
-    double rtime = (double)(bench->read.time_end - bench->read.time_begin) / CLOCKS_PER_SEC;
+    // double wtime = (double)(bench->write.time_end - bench->write.time_begin) / CLOCKS_PER_SEC;
+    // double rtime = (double)(bench->read.time_end - bench->read.time_begin) / CLOCKS_PER_SEC;
 
-    double wbreal = (((size_t) bench->write.rtime_begin.tv_sec * 1000000) + bench->write.rtime_begin.tv_usec) / 1000000.0;
-    double wereal = (((size_t) bench->write.rtime_end.tv_sec * 1000000) + bench->write.rtime_end.tv_usec) / 1000000.0;
-    double rbreal = (((size_t) bench->read.rtime_begin.tv_sec * 1000000) + bench->read.rtime_begin.tv_usec) / 1000000.0;
-    double rereal = (((size_t) bench->read.rtime_end.tv_sec * 1000000) + bench->read.rtime_end.tv_usec) / 1000000.0;
-    double secrbreal = (((size_t) bench->secread.rtime_begin.tv_sec * 1000000) + bench->secread.rtime_begin.tv_usec) / 1000000.0;
-    double secrereal = (((size_t) bench->secread.rtime_end.tv_sec * 1000000) + bench->secread.rtime_end.tv_usec) / 1000000.0;
-
-    double wrtime = wereal - wbreal;
-    double rrtime = rereal - rbreal;
-    double secrrtime = secrereal - secrbreal;
+    double wrtime = benchmark_time_spent(&bench->write.rtime_end) - benchmark_time_spent(&bench->write.rtime_begin);
+    double rrtime = benchmark_time_spent(&bench->read.rtime_end) - benchmark_time_spent(&bench->read.rtime_begin);
+    double secrrtime = benchmark_time_spent(&bench->secread.rtime_end) - benchmark_time_spent(&bench->secread.rtime_begin);
 
     float chunkskb = bench->chunksize / 1024.0;
-    float wspeed = (((size_t) bench->chunksize * bench->chunks) / wtime) / (1024 * 1024);
-    float rspeed = (((size_t) bench->chunksize * bench->chunks) / rtime) / (1024 * 1024);
+    // double wspeed = benchmark_speed(bench->chunksize * bench->chunks, wtime);
+    // double rspeed = benchmark_speed(bench->chunksize * bench->chunks, rtime);
 
-    float wrspeed = (((size_t) bench->chunksize * bench->chunks) / wrtime) / (1024 * 1024);
-    float rrspeed = (((size_t) bench->chunksize * bench->chunks) / rrtime) / (1024 * 1024);
-    float secrrspeed = ((bench->chunksize * bench->chunks) / secrrtime) / (1024 * 1024);
+    double wrspeed = benchmark_speed(bench->chunksize * bench->chunks, wrtime);
+    double rrspeed = benchmark_speed(bench->chunksize * bench->chunks, rrtime);
+    double secrrspeed = benchmark_speed(bench->chunksize * bench->chunks, secrrtime);
 
     printf("[+] --- client %u ---\n", bench->id);
     /*
@@ -344,9 +347,29 @@ void benchmark_statistics(benchmark_t *bench) {
     printf("[+] user write: %u keys of %.2f KB uploaded in %.2f seconds\n", bench->write.success, chunkskb, wrtime);
     printf("[+] user read : %u keys of %.2f KB uploaded in %.2f seconds\n", bench->read.success, chunkskb, rrtime);
 
-    printf("[+] user write: client speed: %.2f MB/s\n", wrspeed);
-    printf("[+] reg user read : client speed: %.2f MB/s\n", rrspeed);
-    printf("[+] sec user read : client speed: %.2f MB/s\n", secrrspeed);
+    printf("[+] default write: %.2f MB/s\n", wrspeed);
+    printf("[+] regular read : %.2f MB/s\n", rrspeed);
+    printf("[+] secure  read : %.2f MB/s\n", secrrspeed);
+}
+
+void benchmark_statistics_summary(benchmark_t **benchs, unsigned int length) {
+    double readtime = 0;
+    double writetime = 0;
+    double readspeed = 0;
+    double writespeed = 0;
+
+    for(unsigned int i = 0; i < length; i++) {
+        benchmark_t *bench = benchs[i];
+
+        readtime += benchmark_time_spent(&bench->read.rtime_end) - benchmark_time_spent(&bench->read.rtime_begin);
+        writetime += benchmark_time_spent(&bench->write.rtime_end) - benchmark_time_spent(&bench->write.rtime_begin);
+
+        readspeed += benchmark_speed(bench->chunksize * bench->chunks, readtime);
+        writespeed += benchmark_speed(bench->chunksize * bench->chunks, writetime);
+    }
+
+    printf("[+] read speed: %.3f MB/s\n", readspeed);
+    printf("[+] write speed: %.3f MB/s\n", writespeed);
 }
 
 void benchmark_passes(benchmark_t **benchs, unsigned int length) {
@@ -416,6 +439,11 @@ int benchmark(benchmark_t **benchs, unsigned int length) {
     for(unsigned int i = 0; i < length; i++)
         benchmark_statistics(benchs[i]);
 
+    printf("[+] \n");
+    printf("[+] final statistics\n");
+    printf("[+] ==========================================\n");
+    benchmark_statistics_summary(benchs, length);
+
     printf("\033[?25h");
 
     return 0;
@@ -436,14 +464,14 @@ static int signal_intercept(int signal, void (*function)(int)) {
 }
 
 static void sighandler(int signal) {
-    void *buffer[1024];
+    if(signal == SIGSEGV)
+        printf("\n[-] segmentation fault");
 
-    switch(signal) {
-        case SIGINT:
-            printf("\n[+] stopping\n");
-            printf("\033[?25h");
-        break;
-    }
+    if(signal == SIGFPE)
+        printf("\n[-] floating point exception");
+
+    printf("\n[+] stopping\n");
+    printf("\033[?25h");
 
     // forwarding original error code
     exit(128 + signal);
@@ -454,6 +482,8 @@ int initialize() {
     unsigned int threads = rootclients;
 
     signal_intercept(SIGINT, sighandler);
+    signal_intercept(SIGSEGV, sighandler);
+    signal_intercept(SIGFPE, sighandler);
 
     //
     // initializing
