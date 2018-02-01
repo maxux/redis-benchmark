@@ -226,7 +226,7 @@ static void *benchmark_pass_read_secure(void *data) {
         if(strcmp((const char *) hash, (const char *) b->hashes[i])) {
             fprintf(stderr, "\n[-] hash mismatch: %s\n", hash);
             fprintf(stderr, "[-] hash expected: %s\n", b->hashes[i]);
-            fprintf(stderr, "[-] size expected: %d, received: %u\n", reply->len, b->chunksize);
+            fprintf(stderr, "[-] size expected: %d, received: %u\n", b->chunksize, reply->len);
             // exit(EXIT_FAILURE);
         }
 
