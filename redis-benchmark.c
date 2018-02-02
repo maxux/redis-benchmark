@@ -343,9 +343,9 @@ void benchmark_statistics(benchmark_t *bench) {
     // double wspeed = benchmark_speed(bench->chunksize * bench->chunks, wtime);
     // double rspeed = benchmark_speed(bench->chunksize * bench->chunks, rtime);
 
-    double wrspeed = benchmark_speed(bench->chunksize * bench->chunks, wrtime);
-    double rrspeed = benchmark_speed(bench->chunksize * bench->chunks, rrtime);
-    double secrrspeed = benchmark_speed(bench->chunksize * bench->chunks, secrrtime);
+    double wrspeed = benchmark_speed((size_t) bench->chunksize * bench->chunks, wrtime);
+    double rrspeed = benchmark_speed((size_t) bench->chunksize * bench->chunks, rrtime);
+    double secrrspeed = benchmark_speed((size_t) bench->chunksize * bench->chunks, secrrtime);
 
     printf("[+] --- client %u ---\n", bench->id);
     /*
@@ -376,8 +376,8 @@ void benchmark_statistics_summary(benchmark_t **benchs, unsigned int length) {
         readtime += benchmark_time_spent(&bench->read.rtime_end) - benchmark_time_spent(&bench->read.rtime_begin);
         writetime += benchmark_time_spent(&bench->write.rtime_end) - benchmark_time_spent(&bench->write.rtime_begin);
 
-        readspeed += benchmark_speed(bench->chunksize * bench->chunks, readtime);
-        writespeed += benchmark_speed(bench->chunksize * bench->chunks, writetime);
+        readspeed += benchmark_speed((size_t) bench->chunksize * bench->chunks, readtime);
+        writespeed += benchmark_speed((size_t) bench->chunksize * bench->chunks, writetime);
     }
 
     printf("[+] read speed: %.3f MB/s\n", readspeed);
