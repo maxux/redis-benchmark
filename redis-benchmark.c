@@ -276,8 +276,8 @@ static char *benchmark_buffer_generate(benchmark_t *bench, size_t buffer) {
 
     bench->hashes[buffer] = sha256(bench->buffers[buffer], bench->chunksize);
 
-    if(buffer % 16 == 0)
-        progress(bench->id, "generating data ", buffer, bench->chunks);
+    // if(buffer % 16 == 0)
+    //    progress(bench->id, "generating data ", buffer, bench->chunks);
 
     return bench->hashes[buffer];
 }
@@ -303,8 +303,20 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
     printf("[+] generator: hashkey memory usage: %.2f MB\n", (bench->chunks * SHA256LEN) / (1024 * 1024.0));
 
     // generating buffers
-    for(unsigned int buffer = 0; buffer < bench->chunks; buffer++)
+    unsigned int computed = 0;
+
+    #pragma omp parallel for
+    for(unsigned int buffer = 0; buffer < bench->chunks; buffer++) {
         benchmark_buffer_generate(bench, buffer);
+
+        if(++computed % 16 != 0)
+            continue;
+
+        #pragma omp critical
+        {
+            progress(bench->id, "generating data ", computed, bench->chunks);
+        }
+    }
 
     progressdone(bench->id, "generating data ");
 

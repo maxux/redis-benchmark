@@ -2,8 +2,8 @@ EXEC=redis-benchmark
 SRC=$(wildcard *.c)
 OBJ=$(SRC:.c=.o)
 
-CFLAGS=-g -W -Wall -O2 -pthread -I/usr/include/hiredis
-LDFLAGS=-rdynamic -lhiredis -lpthread -lssl -lcrypto
+CFLAGS=-g -W -Wall -O2 -fopenmp -pthread -I/usr/include/hiredis
+LDFLAGS=-fopenmp -rdynamic -lhiredis -lpthread -lssl -lcrypto
 
 all: $(EXEC)
 
