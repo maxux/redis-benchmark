@@ -50,8 +50,6 @@ typedef struct benchmark_t {
     char *hash;
     char *response;
 
-    struct benchmark_pass_t read;
-    struct benchmark_pass_t secread;
     struct benchmark_pass_t write;
 
 } benchmark_t;
@@ -87,35 +85,6 @@ static char *sha256(const unsigned char *buffer, size_t length) {
     SHA256_Final(hash, &sha256);
 
     return sha256hex(hash);
-}
-
-//
-// progress bar
-//
-void progressbar(size_t now, size_t total) {
-    int progress = ((double) now / (double) total) * 50;
-
-    printf("[");
-    for(int i = 0; i < progress; i++)
-        printf("=");
-
-    for(int i = progress; i < 50; i++)
-        printf(".");
-
-    printf("]\r");
-
-    fflush(stdout);
-}
-
-void progress(unsigned int clientid, char *status, size_t now, size_t total) {
-    printf("\r[+] client %u, %s: ", clientid, status);
-    progressbar(now, total);
-}
-
-void progressdone(unsigned int clientid, char *status) {
-    printf("\r[+] client %u, %s: ", clientid, status);
-    progressbar(100, 100);
-    printf("\n");
 }
 
 //
@@ -188,8 +157,6 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
     // allocating memory for responses
     if(!(bench->response = (char *) malloc(sizeof(char) * 512)))
         diep("malloc: responses");
-
-    progressdone(bench->id, "generating data ");
 
     return bench;
 }
