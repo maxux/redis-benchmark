@@ -226,7 +226,7 @@ void benchmark_statistics_summary(benchmark_t **benchs, unsigned int length) {
         benchmark_t *bench = benchs[i];
 
         writetime += benchmark_time_spent(&bench->write.rtime_end) - benchmark_time_spent(&bench->write.rtime_begin);
-        writespeed += benchmark_speed((size_t) bench->chunksize * bench->chunks, writetime);
+        writespeed += benchmark_speed((size_t) bench->chunksize * bench->write.success, writetime);
     }
 
     printf("[+] write speed: %.3f MB/s\n", writespeed);
