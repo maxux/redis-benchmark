@@ -373,8 +373,8 @@ void benchmark_statistics_summary(benchmark_t **benchs, unsigned int length) {
     for(unsigned int i = 0; i < length; i++) {
         benchmark_t *bench = benchs[i];
 
-        readtime += benchmark_time_spent(&bench->read.rtime_end) - benchmark_time_spent(&bench->read.rtime_begin);
-        writetime += benchmark_time_spent(&bench->write.rtime_end) - benchmark_time_spent(&bench->write.rtime_begin);
+        readtime = benchmark_time_spent(&bench->read.rtime_end) - benchmark_time_spent(&bench->read.rtime_begin);
+        writetime = benchmark_time_spent(&bench->write.rtime_end) - benchmark_time_spent(&bench->write.rtime_begin);
 
         readspeed += benchmark_speed((size_t) bench->chunksize * bench->chunks, readtime);
         writespeed += benchmark_speed((size_t) bench->chunksize * bench->chunks, writetime);
