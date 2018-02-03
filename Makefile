@@ -1,24 +1,29 @@
-EXEC=redis-benchmark
-SRC=$(wildcard *.c)
-OBJ=$(SRC:.c=.o)
-
 CFLAGS=-g -W -Wall -O2 -fopenmp -pthread -I/usr/include/hiredis
 LDFLAGS=-fopenmp -rdynamic -lhiredis -lpthread -lssl -lcrypto
 
-all: $(EXEC)
+all: redis-benchmark redis-write-burst
 
 run: all
-	./$(EXEC)
+	./redis-benchmark
 
-$(EXEC): $(OBJ)
+# benchmark
+redis-benchmark: redis-benchmark.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-%.o: %.c
+redis-benchmark.o: redis-benchmark.c
 	$(CC) $(CFLAGS) -c $<
+
+# write burst
+redis-write-burst: redis-write-burst.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+redis-write-burst.o: redis-write-burst.c
+	$(CC) $(CFLAGS) -c $<
+
 
 clean:
 	$(RM) *.o
 
 mrproper: clean
-	$(RM) $(EXEC)
+	$(RM) redis-benchmark redis-write-burst
 
