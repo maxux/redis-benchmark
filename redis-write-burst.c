@@ -192,7 +192,7 @@ void benchmark_statistics_summary(benchmark_t **benchs, unsigned int length) {
     for(unsigned int i = 0; i < length; i++) {
         benchmark_t *bench = benchs[i];
 
-        writetime += benchmark_time_spent(&bench->write.rtime_end) - benchmark_time_spent(&bench->write.rtime_begin);
+        writetime = benchmark_time_spent(&bench->write.rtime_end) - benchmark_time_spent(&bench->write.rtime_begin);
         writespeed += benchmark_speed((size_t) bench->chunksize * bench->write.success, writetime);
     }
 
