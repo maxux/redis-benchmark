@@ -218,27 +218,19 @@ void benchmark_statistics(benchmark_t *bench) {
     printf("[+] default write: %.2f MB/s\n", wrspeed);
 }
 
-/*
 void benchmark_statistics_summary(benchmark_t **benchs, unsigned int length) {
-    double readtime = 0;
     double writetime = 0;
-    double readspeed = 0;
     double writespeed = 0;
 
     for(unsigned int i = 0; i < length; i++) {
         benchmark_t *bench = benchs[i];
 
-        readtime += benchmark_time_spent(&bench->read.rtime_end) - benchmark_time_spent(&bench->read.rtime_begin);
         writetime += benchmark_time_spent(&bench->write.rtime_end) - benchmark_time_spent(&bench->write.rtime_begin);
-
-        readspeed += benchmark_speed((size_t) bench->chunksize * bench->chunks, readtime);
         writespeed += benchmark_speed((size_t) bench->chunksize * bench->chunks, writetime);
     }
 
-    printf("[+] read speed: %.3f MB/s\n", readspeed);
     printf("[+] write speed: %.3f MB/s\n", writespeed);
 }
-*/
 
 //
 // benchmark passes
@@ -356,6 +348,8 @@ static void sighandler(int signal) {
 
         benchmark_statistics(remotes[i]);
     }
+
+    benchmark_statistics_summary(remotes, threads);
 
     printf("\n[+] stopping\n");
     printf("\033[?25h");
