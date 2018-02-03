@@ -196,6 +196,7 @@ void benchmark_statistics_summary(benchmark_t **benchs, unsigned int length) {
         writespeed += benchmark_speed((size_t) bench->chunksize * bench->write.success, writetime);
     }
 
+    printf("[+] =====================================\n");
     printf("[+] write speed: %.3f MB/s\n", writespeed);
 }
 
