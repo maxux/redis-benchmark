@@ -168,8 +168,16 @@ static void *benchmark_pass_write(void *data) {
         if((i % ((b->chunks > 1024 ? b->chunks / 128 : 2))) == 0)
             progress(b->id, "writing chunks  ", i, b->chunks);
 
-        b->responses[i] = strdup(reply->str);
+        if(reply->len == 0) {
+            fprintf(stderr, "\n[-] write failed, empty response\n");
 
+            b->responses[i] = NULL;
+            freeReplyObject(reply);
+
+            continue;
+        }
+
+        b->responses[i] = strdup(reply->str);
         freeReplyObject(reply);
 
         b->write.success += 1;
@@ -191,6 +199,9 @@ static void *benchmark_pass_read(void *data) {
     b->read.time_begin = clock();
 
     for(unsigned int i = 0; i < b->chunks; i++) {
+        if(!b->responses[i])
+            continue;
+
         reply = redisCommand(b->redis, "GET %s", b->responses[i], strlen(b->responses[i]));
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
         freeReplyObject(reply);
@@ -217,6 +228,9 @@ static void *benchmark_pass_read_secure(void *data) {
     b->secread.time_begin = clock();
 
     for(unsigned int i = 0; i < b->chunks; i++) {
+        if(!b->responses[i])
+            continue;
+
         reply = redisCommand(b->redis, "GET %s", b->responses[i], strlen(b->responses[i]));
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
 
