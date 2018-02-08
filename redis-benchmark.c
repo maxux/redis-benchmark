@@ -50,7 +50,7 @@ typedef struct benchmark_t {
     unsigned int chunksize;   // chunk size
     unsigned int chunks;      // chunks length
     unsigned char **buffers;  // chunks buffers
-    char **hashes;   // chunks hashes
+    unsigned char **hashes;   // chunks hashes
     char **responses;
 
     struct benchmark_pass_t read;
@@ -81,15 +81,15 @@ static char *sha256hex(unsigned char *hash) {
     return buffer;
 }
 
-static char *sha256(const unsigned char *buffer, size_t length) {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
+static unsigned char *sha256(const unsigned char *buffer, size_t length) {
+    unsigned char *hash = calloc(SHA256_DIGEST_LENGTH, 1);
     SHA256_CTX sha256;
 
     SHA256_Init(&sha256);
     SHA256_Update(&sha256, buffer, length);
     SHA256_Final(hash, &sha256);
 
-    return sha256hex(hash);
+    return hash;
 }
 
 //
@@ -159,7 +159,7 @@ static void *benchmark_pass_write(void *data) {
     b->write.time_begin = clock();
 
     for(unsigned int i = 0; i < b->chunks; i++) {
-        reply = redisCommand(b->redis, "SET %b %b", b->hashes[i], SHA256LEN, b->buffers[i], b->chunksize);
+        reply = redisCommand(b->redis, "SET %b %b", b->hashes[i], SHA256_DIGEST_LENGTH, b->buffers[i], b->chunksize);
         // reply = redisCommand(b->redis, "SET X %b", b->buffers[i], b->chunksize);
         // printf("[+] uploading: %s: %s\n", bench->hashes[i], reply->str);
 
@@ -177,7 +177,9 @@ static void *benchmark_pass_write(void *data) {
             continue;
         }
 
-        b->responses[i] = strdup(reply->str);
+        b->responses[i] = malloc(reply->len);
+        memcpy(b->responses[i], reply->str, reply->len);
+
         freeReplyObject(reply);
 
         b->write.success += 1;
@@ -202,7 +204,7 @@ static void *benchmark_pass_read(void *data) {
         if(!b->responses[i])
             continue;
 
-        reply = redisCommand(b->redis, "GET %s", b->responses[i], strlen(b->responses[i]));
+        reply = redisCommand(b->redis, "GET %b", b->responses[i], SHA256_DIGEST_LENGTH);
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
         freeReplyObject(reply);
 
@@ -231,17 +233,22 @@ static void *benchmark_pass_read_secure(void *data) {
         if(!b->responses[i])
             continue;
 
-        reply = redisCommand(b->redis, "GET %s", b->responses[i], strlen(b->responses[i]));
+        reply = redisCommand(b->redis, "GET %b", b->responses[i], SHA256_DIGEST_LENGTH);
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
 
-        char *hash = sha256((unsigned char *) reply->str, reply->len);
+        unsigned char *hash = sha256((unsigned char *) reply->str, reply->len);
 
         // compare hashes
-        if(strcmp((const char *) hash, (const char *) b->hashes[i])) {
-            fprintf(stderr, "\n[-] hash mismatch: %s\n", hash);
-            fprintf(stderr, "[-] hash expected: %s\n", b->hashes[i]);
+        if(memcmp(hash, b->hashes[i], SHA256_DIGEST_LENGTH)) {
+            char *expected = sha256hex(b->hashes[i]);
+            char *received = sha256hex(hash);
+
+            fprintf(stderr, "\n[-] hash mismatch: %s\n", received);
+            fprintf(stderr, "[-] hash expected: %s\n", expected);
             fprintf(stderr, "[-] size expected: %d, received: %u\n", b->chunksize, reply->len);
-            // exit(EXIT_FAILURE);
+
+            free(expected);
+            free(received);
         }
 
 
@@ -279,7 +286,7 @@ static size_t randomize(unsigned char *buffer, size_t length) {
     return rndread;
 }
 
-static char *benchmark_buffer_generate(benchmark_t *bench, size_t buffer) {
+static unsigned char *benchmark_buffer_generate(benchmark_t *bench, size_t buffer) {
     if(!(bench->buffers[buffer] = (unsigned char *) malloc(sizeof(char) * bench->chunksize)))
         diep("malloc: buffer");
 
@@ -300,7 +307,7 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
     printf("[+] allocating buffers [client %u]\n", bench->id);
 
     // allocating memory for hashes
-    if(!(bench->hashes = (char **) malloc(sizeof(char *) * bench->chunks)))
+    if(!(bench->hashes = (unsigned char **) malloc(sizeof(char *) * bench->chunks)))
         diep("malloc: hashes");
 
     // allocating memory for buffers
@@ -314,7 +321,7 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
     size_t datasize = (size_t) bench->chunks * bench->chunksize;
     printf("[+] generator: will allocate %u keys (payload: %u bytes)\n", bench->chunks, bench->chunksize);
     printf("[+] generator: payload memory usage: %.2f MB\n", datasize / (1024 * 1024.0));
-    printf("[+] generator: hashkey memory usage: %.2f MB\n", (bench->chunks * SHA256LEN) / (1024 * 1024.0));
+    printf("[+] generator: hashkey memory usage: %.2f MB\n", (bench->chunks * SHA256_DIGEST_LENGTH) / (1024 * 1024.0));
 
     // generating buffers
     unsigned int computed = 0;
