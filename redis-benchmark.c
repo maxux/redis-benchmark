@@ -47,11 +47,12 @@ typedef struct benchmark_t {
     redisContext *redis;      // redis context
     pthread_t pthread;        // thread context
 
-    unsigned int chunksize;   // chunk size
-    unsigned int chunks;      // chunks length
-    unsigned char **buffers;  // chunks buffers
-    unsigned char **hashes;   // chunks hashes
-    char **responses;
+    unsigned int chunksize;    // chunk size
+    unsigned int chunks;       // chunks length
+    unsigned char **buffers;   // chunks buffers
+    unsigned char **hashes;    // chunks hashes
+    unsigned char **responses; // copy of the redis response
+    size_t *sizes;             // size of the responses
 
     struct benchmark_pass_t read;
     struct benchmark_pass_t secread;
@@ -177,6 +178,7 @@ static void *benchmark_pass_write(void *data) {
             continue;
         }
 
+        b->sizes[i] = reply->len;
         b->responses[i] = malloc(reply->len);
         memcpy(b->responses[i], reply->str, reply->len);
 
@@ -204,7 +206,7 @@ static void *benchmark_pass_read(void *data) {
         if(!b->responses[i])
             continue;
 
-        reply = redisCommand(b->redis, "GET %b", b->responses[i], SHA256_DIGEST_LENGTH);
+        reply = redisCommand(b->redis, "GET %b", b->responses[i], b->sizes[i]);
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
         freeReplyObject(reply);
 
@@ -233,7 +235,7 @@ static void *benchmark_pass_read_secure(void *data) {
         if(!b->responses[i])
             continue;
 
-        reply = redisCommand(b->redis, "GET %b", b->responses[i], SHA256_DIGEST_LENGTH);
+        reply = redisCommand(b->redis, "GET %b", b->responses[i], b->sizes[i]);
         // printf("[+] downloaded: %s\n", bench->hashes[i]);
 
         unsigned char *hash = sha256((unsigned char *) reply->str, reply->len);
@@ -315,8 +317,12 @@ static benchmark_t *benchmark_generate(benchmark_t *bench) {
         diep("malloc: buffers");
 
     // allocating memory for responses
-    if(!(bench->responses = (char **) malloc(sizeof(char *) * bench->chunks)))
+    if(!(bench->responses = (unsigned char **) malloc(sizeof(char *) * bench->chunks)))
         diep("malloc: responses");
+
+    // allocating memory for responses
+    if(!(bench->sizes = (size_t *) malloc(sizeof(size_t) * bench->chunks)))
+        diep("malloc: sizes");
 
     size_t datasize = (size_t) bench->chunks * bench->chunksize;
     printf("[+] generator: will allocate %u keys (payload: %u bytes)\n", bench->chunks, bench->chunksize);
