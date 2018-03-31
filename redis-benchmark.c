@@ -161,7 +161,7 @@ static void *benchmark_pass_write(void *data) {
 
     for(unsigned int i = 0; i < b->chunks; i++) {
         reply = redisCommand(b->redis, "SET %b %b", b->hashes[i], SHA256_DIGEST_LENGTH, b->buffers[i], b->chunksize);
-        // reply = redisCommand(b->redis, "SET X %b", b->buffers[i], b->chunksize);
+        // reply = redisCommand(b->redis, "SET %b %b", "", 0, b->buffers[i], b->chunksize);
         // printf("[+] uploading: %s: %s\n", bench->hashes[i], reply->str);
 
         // printf("[+] uploading chunk %d: %s\n", i, reply->str);
@@ -169,8 +169,12 @@ static void *benchmark_pass_write(void *data) {
         if((i % ((b->chunks > 1024 ? b->chunks / 128 : 2))) == 0)
             progress(b->id, "writing chunks  ", i, b->chunks);
 
-        if(reply->len == 0) {
-            fprintf(stderr, "\n[-] write failed, empty response\n");
+        if(reply->len == 0 || reply->type == REDIS_REPLY_ERROR) {
+            if(reply->len == 0)
+                fprintf(stderr, "\n[-] write: empty response\n");
+
+            if(reply->type == REDIS_REPLY_ERROR)
+                fprintf(stderr, "\n[-] write: invalid response: %.*s\n", reply->len, reply->str);
 
             b->responses[i] = NULL;
             freeReplyObject(reply);
